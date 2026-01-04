@@ -17,7 +17,9 @@ This document provides a granular, file-level explanation of the **InterviewAren
 - **`env.js`**:
     - **Role**: Centralizes all `process.env` access with clear error messaging for missing keys.
 - **`inngest.js`**:
-    - **Function**: `syncUser` — A background job that listens for `clerk/user.created` to keep our DB in sync.
+    - **Functions**: 
+        - `syncUser` — Listens for `clerk/user.created` events. Creates user records in MongoDB and upserts user profiles to Stream Video with clerk ID, name, email, and profile image.
+        - `deleteUserFromDB` — Listens for `clerk/user.deleted` events. Removes user records from MongoDB and deletes the corresponding Stream user profile to ensure complete data cleanup.
 - **`stream.js`**:
     - **Exports**: `chatClient` and `streamClient` instances.
     - **Function**: `upsertStreamUser(userData)` — Injects our local user data into Stream's specialized user database.
@@ -88,8 +90,11 @@ This document provides a granular, file-level explanation of the **InterviewAren
     -   The backend constructs a technical interviewer persona prompt.
     -   Groq returns the response, which is then streamed (or sent in bulk) back to the UI.
 
-4.  **Async Workflows (Clerk Webhooks ↔ Inngest ↔ MongoDB)**:
-    -   Whenever a user profile is updated in Clerk, **Inngest** hears about it via a webhook and silently updates our local `User` collection and Stream identity. This ensures the UI always shows the correct profile pictures and names.
+4.  **Async Workflows (Clerk Webhooks ↔ Inngest ↔ MongoDB ↔ Stream)**:
+    -   Whenever a user is created or deleted in Clerk, **Inngest** hears about it via webhooks and automatically synchronizes our systems:
+        - **User Creation**: Creates the user in MongoDB and upserts their profile to Stream with name and image.
+        - **User Deletion**: Removes the user from MongoDB and Stream, ensuring no orphaned data remains.
+    -   This bidirectional sync ensures the UI always shows correct profile pictures and names, while maintaining data integrity and compliance with deletion requests.
 
 ---
 *Documentation for maintainers and reviewers focusing on technical depth and architectural clarity.*

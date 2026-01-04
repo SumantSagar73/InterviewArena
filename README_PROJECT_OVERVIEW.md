@@ -51,11 +51,14 @@ This document provides a technical post-mortem of the features built into **Inte
 ## 🔄 Feature 5: Background User Synchronization
 **Purpose**: To ensure that Auth (Clerk), DB (MongoDB), and Video (Stream) always have the same user data without manual intervention.
 
--   **Implementation**: Used **Inngest** to handle Clerk Webhooks. When a user is created in Clerk, an Inngest function automatically creates the record in MongoDB and upserts the user profile into Stream.
+-   **Implementation**: Used **Inngest** to handle Clerk Webhooks with two critical functions:
+    -   **`syncUser`**: When a user is created in Clerk (`clerk/user.created`), this function automatically creates the record in MongoDB and upserts the user profile into Stream with their name and profile image.
+    -   **`deleteUserFromDB`**: When a user is deleted in Clerk (`clerk/user.deleted`), this function removes the user from MongoDB and deletes their Stream profile, ensuring complete data cleanup across all systems.
 -   **Alternate Options**:
     -   *Direct API calls in the signup flow*: Risk of failure. If Stream is down, the whole signup fails.
     -   *Cron jobs*: Too slow; users wouldn't be able to join calls immediately after signing up.
--   **Why this choice?**: **Inngest** provides "Event-Driven" reliability. If a service is down, Inngest retries the synchronization automatically, ensuring eventual consistency across all systems.
+    -   *Manual cleanup*: Error-prone and leaves orphaned records across services.
+-   **Why this choice?**: **Inngest** provides "Event-Driven" reliability with automatic retries. If a service is down, Inngest retries the synchronization automatically, ensuring eventual consistency across all systems. The bidirectional sync (create & delete) prevents data bloat and maintains GDPR compliance by properly removing user data when accounts are deleted.
 
 ---
 
