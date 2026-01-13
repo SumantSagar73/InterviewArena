@@ -18,7 +18,7 @@ const ResumePreviewPanel = ({ sessionId, isHost }) => {
         try {
             if (showRefreshState) setRefreshing(true);
             else setLoading(true);
-            
+
             // We fetch as blob to create a secure object URL
             const response = await axios.get(`/resume/${sessionId}/file`, {
                 responseType: 'blob'
@@ -159,7 +159,7 @@ const ResumePreviewPanel = ({ sessionId, isHost }) => {
                     <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center">
                         <FileTextIcon className="size-10 text-gray-600 mb-3" />
                         <p className="text-gray-400 text-sm mb-4">{error}</p>
-                        
+
                         {isHost && (
                             <p className="text-gray-500 text-xs mb-4">
                                 Waiting for candidate to upload resume...
