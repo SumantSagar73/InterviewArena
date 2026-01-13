@@ -11,7 +11,6 @@ export async function getStreamToken(req, res) {
 
     try {
       await chatClient.upsertUser(streamUser);
-      console.log("Upserted Stream user:", streamUser.id);
     } catch (err) {
       console.error("Failed to upsert Stream user:", err?.message || err);
     }
@@ -26,7 +25,7 @@ export async function getStreamToken(req, res) {
       userImage: req.user.image,
     });
   } catch (error) {
-    console.log("Error in getStreamToken controller:", error.message);
+    console.error("Error in getStreamToken controller:", error.message);
     res.status(500).json({ message: "Internal Server Error" });
   }
 }

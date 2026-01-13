@@ -13,7 +13,8 @@ import {
     useAnalyzeCode,
     useGenerateHint,
     useToggleAIAnalyzerVote,
-    useEnableAIAnalyzer
+    useEnableAIAnalyzer,
+    useSuggestQuestion
 } from "../hooks/useAI";
 
 function AIAnalyzerPanel({
@@ -28,6 +29,7 @@ function AIAnalyzerPanel({
     onClose
 }) {
     const [analysis, setAnalysis] = useState("");
+    const [suggestion, setSuggestion] = useState(null);
     const [showHints, setShowHints] = useState(true);
     const [soloHints, setSoloHints] = useState([]);
     const [isMinimized, setIsMinimized] = useState(false);
@@ -39,6 +41,7 @@ function AIAnalyzerPanel({
     const generateHintMutation = useGenerateHint(session?._id);
     const toggleVoteMutation = useToggleAIAnalyzerVote(session?._id);
     const enableAnalyzerMutation = useEnableAIAnalyzer(session?._id);
+    const suggestQuestionMutation = useSuggestQuestion();
 
     const hasJoined = !!session?.participant;
     const totalParticipantsNeeded = hasJoined ? 2 : 1;
@@ -81,6 +84,30 @@ function AIAnalyzerPanel({
                     if (isSolo) {
                         setSoloHints(prev => [...prev, data.hint]);
                     }
+                    if (isMiniscreen) setIsMinimized(false);
+                },
+            }
+        );
+    };
+
+    const handleSuggestQuestion = () => {
+        // Prepare context for AI Assistant
+        const config = {
+            role: "Software Engineer", // Default or derived from session
+            difficulty: session?.difficulty || "Medium",
+            topics: session?.problem ? [session.problem] : ["General Technical"]
+        };
+
+        suggestQuestionMutation.mutate(
+            {
+                resumeText: "", // Not yet stored in session, but schema supports it
+                config,
+                codingProblemLink: "", // Could be derived if needed
+                currentPhase: "Technical Discussion"
+            },
+            {
+                onSuccess: (data) => {
+                    setSuggestion(data);
                     if (isMiniscreen) setIsMinimized(false);
                 },
             }
@@ -176,6 +203,33 @@ function AIAnalyzerPanel({
                                     </div>
                                 )}
                             </div>
+
+                            {/* MINI SUGGESTER (Interviewer Only) */}
+                            {isHost && (
+                                <div className="space-y-3 pt-3 border-t border-white/5">
+                                    <div className="flex items-center gap-2 font-bold text-[10px] text-white/50 uppercase tracking-widest">
+                                        <SparklesIcon className="size-3 text-secondary" />
+                                        <span>Suggestions</span>
+                                    </div>
+                                    <button
+                                        onClick={handleSuggestQuestion}
+                                        disabled={suggestQuestionMutation.isPending}
+                                        className="btn btn-secondary btn-xs btn-outline w-full rounded-lg font-bold gap-2"
+                                    >
+                                        {suggestQuestionMutation.isPending ? <Loader2Icon className="size-3 animate-spin" /> : <SparklesIcon className="size-3" />}
+                                        Suggest Question
+                                    </button>
+                                    {suggestion && (
+                                        <div className="bg-secondary/5 border border-secondary/10 rounded-xl p-3 space-y-2">
+                                            <p className="text-[9px] text-white/90 leading-tight font-medium">{suggestion.suggested_question}</p>
+                                            <div className="flex items-center gap-2">
+                                                <span className="badge badge-secondary badge-xs text-[7px] h-auto py-0.5">{suggestion.question_type}</span>
+                                                <span className="text-[7px] text-white/30 truncate">{suggestion.recommended_next_step?.replace(/_/g, " ")}</span>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>
@@ -323,6 +377,58 @@ function AIAnalyzerPanel({
                                     <div className="text-sm text-white/80 leading-relaxed font-medium whitespace-pre-wrap">
                                         {analysis}
                                     </div>
+                                </div>
+                            )}
+
+                            {/* QUESTION SUGGESTER (Interviewer Only) */}
+                            {isHost && (
+                                <div className="space-y-4 pt-4">
+                                    <div className="h-px bg-white/5"></div>
+                                    <div className="flex items-center gap-2 font-bold text-sm">
+                                        <SparklesIcon className="size-4 text-secondary" />
+                                        <span className="text-white">Question Suggester</span>
+                                        <span className="badge badge-sm bg-secondary/10 border-secondary/20 text-secondary text-[8px] font-black tracking-widest">HOST ONLY</span>
+                                    </div>
+
+                                    <button
+                                        onClick={handleSuggestQuestion}
+                                        disabled={suggestQuestionMutation.isPending}
+                                        className="btn btn-secondary btn-outline btn-sm w-full h-11 rounded-xl font-bold gap-2"
+                                    >
+                                        {suggestQuestionMutation.isPending ? (
+                                            <Loader2Icon className="size-4 animate-spin" />
+                                        ) : (
+                                            <SparklesIcon className="size-4" />
+                                        )}
+                                        Suggest Next Question
+                                    </button>
+
+                                    {suggestion && (
+                                        <div className="bg-[#1e1e2e] border border-secondary/20 rounded-2xl p-5 space-y-4 shadow-xl animate-in fade-in slide-in-from-bottom-2 duration-500">
+                                            <div className="flex items-start justify-between gap-4">
+                                                <div className="space-y-1">
+                                                    <p className="text-[9px] font-black text-secondary uppercase tracking-[0.2em]">Suggested Question</p>
+                                                    <div className="text-sm text-white font-medium leading-relaxed">
+                                                        {suggestion.suggested_question}
+                                                    </div>
+                                                </div>
+                                                <div className="badge badge-secondary badge-xs py-2 px-2 h-auto text-[8px] font-black uppercase tracking-widest whitespace-nowrap">
+                                                    {suggestion.question_type}
+                                                </div>
+                                            </div>
+
+                                            <div className="grid grid-cols-2 gap-3 pt-2">
+                                                <div className="bg-white/5 rounded-lg p-3 space-y-1">
+                                                    <p className="text-[8px] font-black text-white/30 uppercase tracking-widest">Related Topic</p>
+                                                    <p className="text-[10px] text-white/70 font-bold truncate">{suggestion.related_topic}</p>
+                                                </div>
+                                                <div className="bg-white/5 rounded-lg p-3 space-y-1">
+                                                    <p className="text-[8px] font-black text-white/30 uppercase tracking-widest">Next Step</p>
+                                                    <p className="text-[10px] text-white/70 font-bold truncate">{suggestion.recommended_next_step?.replace(/_/g, " ")}</p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>

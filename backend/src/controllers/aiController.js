@@ -1,6 +1,7 @@
 import Groq from "groq-sdk";
 import { ENV } from "../lib/env.js";
 import Session from "../models/Session.js";
+import { AI_INTERVIEWER_PROMPT, AI_PREPARATION_PROMPT, AI_REPORT_PROMPT, AI_INTERVIEW_ASSISTANT_PROMPT } from "../lib/prompts.js";
 
 const groq = new Groq({ apiKey: ENV.GROQ_API_KEY });
 const DEFAULT_MODEL = "llama-3.3-70b-versatile";
@@ -124,8 +125,22 @@ export async function analyzeResume(req, res) {
             { "type": "Technical", "question": "..." },
             { "type": "Behavioral", "question": "..." },
             { "type": "Technical", "question": "..." }
+          ],
+          "missingSkills": [
+            {
+              "skill": "Name of the missing skill (e.g., Docker, Kubernetes, TypeScript)",
+              "importance": "High" | "Medium" | "Low",
+              "chatgptPrompt": "A ready-to-paste ChatGPT prompt that helps the candidate learn this skill step-by-step. Include: learning objectives, recommended timeline (1-4 weeks), hands-on projects, and key concepts to master. Make it specific and actionable.",
+              "readinessGuideline": "A specific milestone or project that indicates when the candidate can confidently add this skill to their resume. Be concrete (e.g., 'After deploying a containerized application to production' rather than 'After learning the basics')."
+            }
           ]
         }
+
+        For the missingSkills array:
+        1. Identify 3-5 key skills that are missing from the resume ${jobDescription ? 'but required/preferred in the job description' : 'but are in-demand for their apparent career path'}.
+        2. Prioritize skills by their importance (High = critical for the role, Medium = beneficial, Low = nice-to-have).
+        3. The chatgptPrompt should be self-contained and ready to paste directly into ChatGPT.
+        4. The readinessGuideline should specify a concrete achievement (project, certification, or measurable outcome) that proves competency.
 
         RESUME:
         ${resumeText}
@@ -145,7 +160,6 @@ export async function analyzeResume(req, res) {
             analysis = JSON.parse(analysisText);
         } catch (e) {
             console.error("Failed to parse AI JSON:", analysisText);
-            // Fallback to a simple error match
             analysis = { error: "Failed to parse analysis" };
         }
 
@@ -200,3 +214,170 @@ export async function enableAnalyzer(req, res) {
         res.status(500).json({ message: "Internal Server Error" });
     }
 }
+
+
+export async function chatAIInterview(req, res) {
+    try {
+        const { messages, currentTopic } = req.body; // Expects an array of { role: "user" | "assistant", content: string }
+
+        if (!messages || !Array.isArray(messages)) {
+            return res.status(400).json({ message: "Invalid messages format" });
+        }
+
+        const topicHint = currentTopic ? `\n\nCURRENT INTERVIEW TOPIC: ${currentTopic}. Ensure your questions and responses are strictly focused on this segment.` : "";
+        const systemMessage = { role: "system", content: AI_INTERVIEWER_PROMPT + topicHint };
+        const conversation = [systemMessage, ...messages];
+
+        const chatCompletion = await groq.chat.completions.create({
+            messages: conversation,
+            model: DEFAULT_MODEL,
+        });
+
+        const reply = chatCompletion.choices[0]?.message?.content || "";
+
+        res.status(200).json({ reply });
+    } catch (error) {
+        console.error("Error in chatAIInterview:", error.message);
+        res.status(500).json({ message: "Interview chat failed" });
+    }
+}
+
+export async function generateInterviewPlan(req, res) {
+    try {
+        const { resumeText, customTopics } = req.body;
+
+        if (!resumeText && (!customTopics || customTopics.length === 0)) {
+            return res.status(400).json({ message: "Resume text or custom topics are required" });
+        }
+
+        const prompt = `
+        ${AI_PREPARATION_PROMPT}
+
+        RESUME TEXT:
+        ${resumeText}
+
+        ${customTopics ? `CUSTOM INTERVIEW TOPICS/SEQUENCE:
+        ${JSON.stringify(customTopics, null, 2)}` : ""}
+
+        INSTRUCTIONS:
+        1. If custom topics are provided, ensure your plan reflects those topics.
+        2. Assign difficulty levels and key questions for each topic.
+        `;
+
+        const chatCompletion = await groq.chat.completions.create({
+            messages: [{ role: "user", content: prompt }],
+            model: DEFAULT_MODEL,
+            response_format: { type: "json_object" }
+        });
+
+        const planText = chatCompletion.choices[0]?.message?.content || "{}";
+        let plan = {};
+        try {
+            plan = JSON.parse(planText);
+        } catch (e) {
+            console.error("Failed to parse Interview Plan JSON:", planText);
+            return res.status(500).json({ message: "Failed to parse interview plan" });
+        }
+
+        res.status(200).json({ plan });
+    } catch (error) {
+        console.error("Error in generateInterviewPlan:", error.message);
+        res.status(500).json({ message: "Interview preparation failed" });
+    }
+}
+
+export async function generateInterviewReport(req, res) {
+    try {
+        const { messages, topics, resumeText, code } = req.body;
+
+        if (!messages || messages.length === 0) {
+            return res.status(400).json({ message: "No interview messages found" });
+        }
+
+        const prompt = `
+        ${AI_REPORT_PROMPT}
+
+        RESUME:
+        ${resumeText || "N/A"}
+
+        TOPICS:
+        ${JSON.stringify(topics, null, 2)}
+
+        TRANSCRIPT:
+        ${messages.map(m => `${m.role.toUpperCase()}: ${m.content}`).join("\n\n")}
+
+        FINAL CODE:
+        ${code || "N/A"}
+        `;
+
+        const chatCompletion = await groq.chat.completions.create({
+            messages: [{ role: "user", content: prompt }],
+            model: DEFAULT_MODEL,
+        });
+
+        const report = chatCompletion.choices[0]?.message?.content || "";
+
+        res.status(200).json({ report });
+    } catch (error) {
+        console.error("Error in generateInterviewReport:", error.message);
+        res.status(500).json({ message: "Failed to generate interview report" });
+    }
+}
+
+export async function generateQuestionSuggestions(req, res) {
+    try {
+        const { resumeText, config, codingProblemLink, currentPhase } = req.body;
+
+        const prompt = `
+        ${AI_INTERVIEW_ASSISTANT_PROMPT}
+
+        ---------------------------------------
+        LIVE INPUT FOR THIS CALL
+        ---------------------------------------
+
+        RESUME:
+        ${resumeText || "No resume provided."}
+
+        CONFIGURATION:
+        - Target Role: ${config?.role || "Software Engineer"}
+        - Difficulty: ${config?.difficulty || "Medium"}
+        - Allowed Topics: ${config?.topics?.join(", ") || "General Technical"}
+
+        CODING CONTEXT:
+        ${codingProblemLink ? `Problem Link: ${codingProblemLink}` : "No specific coding problem linked."}
+
+        CURRENT PHASE:
+        ${currentPhase || "Technical Discussion"}
+
+        ---------------------------------------
+        ACTION: Generate ONE suggested question in JSON format.
+        `;
+
+        const chatCompletion = await groq.chat.completions.create({
+            messages: [{ role: "user", content: prompt }],
+            model: DEFAULT_MODEL,
+            response_format: { type: "json_object" }
+        });
+
+        const content = chatCompletion.choices[0]?.message?.content || "{}";
+        let suggestion;
+        try {
+            suggestion = JSON.parse(content);
+        } catch (e) {
+            console.error("Failed to parse AI JSON response:", content);
+            suggestion = {
+                suggested_question: "Could you tell me about a challenging technical project you've worked on recently?",
+                question_type: "practical",
+                related_topic: "Experience",
+                recommended_next_step: "continue_discussion"
+            };
+        }
+
+        res.status(200).json(suggestion);
+    } catch (error) {
+        console.error("Error in generateQuestionSuggestions:", error.message);
+        res.status(500).json({ message: "Failed to generate question suggestion" });
+    }
+}
+
+

@@ -1,11 +1,9 @@
 import { Link, useLocation } from "react-router";
-import { BookOpenIcon, FileTextIcon, LayoutDashboardIcon, SparklesIcon } from "lucide-react";
+import { FileTextIcon, LayoutDashboardIcon, SparklesIcon } from "lucide-react";
 import { UserButton } from "@clerk/clerk-react";
 
 function Navbar() {
   const location = useLocation();
-
-  console.log(location);
 
   const isActive = (path) => location.pathname === path;
 
@@ -32,23 +30,6 @@ function Navbar() {
         </Link>
 
         <div className="flex items-center gap-1">
-          {/* PROBLEMS PAGE LINK */}
-          <Link
-            to={"/problems"}
-            className={`px-4 py-2.5 rounded-lg transition-all duration-200 
-              ${isActive("/problems")
-                ? "bg-primary text-primary-content"
-                : "hover:bg-base-200 text-base-content/70 hover:text-base-content"
-              }
-              
-              `}
-          >
-            <div className="flex items-center gap-x-2.5">
-              <BookOpenIcon className="size-4" />
-              <span className="font-medium hidden sm:inline">Problems</span>
-            </div>
-          </Link>
-
           {/* DASHBORD PAGE LINK */}
           <Link
             to={"/dashboard"}
@@ -79,7 +60,24 @@ function Navbar() {
           >
             <div className="flex items-center gap-x-2.5">
               <FileTextIcon className="size-4" />
-              <span className="font-medium hidden sm:inline">AI Resume</span>
+              <span className="font-medium hidden sm:inline">Resume</span>
+            </div>
+          </Link>
+
+          {/* AI INTERVIEW PAGE LINK */}
+          <Link
+            to={"/ai-interview"}
+            className={`px-4 py-2.5 rounded-lg transition-all duration-200 
+              ${isActive("/ai-interview")
+                ? "bg-primary text-primary-content"
+                : "hover:bg-base-200 text-base-content/70 hover:text-base-content"
+              }
+              
+              `}
+          >
+            <div className="flex items-center gap-x-2.5">
+              <SparklesIcon className="size-4" />
+              <span className="font-medium hidden sm:inline">Mock Interview</span>
             </div>
           </Link>
 

@@ -11,8 +11,16 @@ import {
     FlameIcon,
     LightbulbIcon,
     TargetIcon,
-    MessageSquareIcon
+    MessageSquareIcon,
+    BookOpenIcon,
+    CopyIcon,
+    ClockIcon
 } from "lucide-react";
+import toast from "react-hot-toast";
+import * as pdfjsLib from 'pdfjs-dist';
+
+// Set worker source for PDF.js
+pdfjsLib.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
 
 function ResumeAnalyzerPage() {
     const [resumeText, setResumeText] = useState("");
@@ -28,6 +36,41 @@ function ResumeAnalyzerPage() {
                 onSuccess: (data) => setAnalysis(data.analysis),
             }
         );
+    };
+
+    const handleFileUpload = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        if (file.type === "application/pdf") {
+            try {
+                toast.loading("Parsing PDF...", { id: "pdf-toast" });
+                const arrayBuffer = await file.arrayBuffer();
+                const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+                let fullText = "";
+
+                for (let i = 1; i <= pdf.numPages; i++) {
+                    const page = await pdf.getPage(i);
+                    const textContent = await page.getTextContent();
+                    const pageText = textContent.items.map(item => item.str).join(" ");
+                    fullText += pageText + "\n";
+                }
+
+                setResumeText(fullText);
+                toast.success("PDF Resume parsed successfully!", { id: "pdf-toast" });
+            } catch (error) {
+                console.error("PDF Parse Error:", error);
+                toast.error("Failed to parse PDF", { id: "pdf-toast" });
+            }
+        } else {
+            // Text/MD files
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                setResumeText(event.target.result);
+                toast.success("Resume loaded!");
+            };
+            reader.readAsText(file);
+        }
     };
 
     return (
@@ -73,6 +116,21 @@ function ResumeAnalyzerPage() {
                                         value={resumeText}
                                         onChange={(e) => setResumeText(e.target.value)}
                                     ></textarea>
+
+                                    <div className="flex items-center gap-4 mt-4">
+                                        <div className="relative">
+                                            <input
+                                                type="file"
+                                                accept=".txt,.md,.pdf"
+                                                onChange={handleFileUpload}
+                                                className="absolute inset-0 opacity-0 cursor-pointer"
+                                            />
+                                            <button className="btn btn-outline btn-sm gap-2 normal-case font-bold">
+                                                <FileTextIcon className="size-4" /> Upload PDF/Text
+                                            </button>
+                                        </div>
+                                        <p className="text-xs text-white/30 italic">Supports .pdf, .txt, .md</p>
+                                    </div>
 
                                     <div className="divider my-8 text-[10px] font-black text-white/10 uppercase tracking-[0.3em]">Job Matching</div>
 
@@ -225,6 +283,65 @@ function ResumeAnalyzerPage() {
                                     </div>
                                 </div>
                             </div>
+
+                            {/* MISSING SKILLS & LEARNING PATH */}
+                            {analysis.missingSkills && analysis.missingSkills.length > 0 && (
+                                <div className="card bg-base-100 shadow-2xl border border-white/5 overflow-hidden">
+                                    <div className="h-2 bg-gradient-to-r from-info to-primary"></div>
+                                    <div className="card-body p-8">
+                                        <h2 className="text-xs font-black uppercase text-white/40 tracking-[0.3em] mb-8 flex items-center gap-2">
+                                            <BookOpenIcon className="size-4 text-info" /> Missing Skills & Learning Path
+                                        </h2>
+                                        <div className="space-y-6">
+                                            {analysis.missingSkills.map((skillItem, i) => (
+                                                <div key={i} className="bg-base-200/50 rounded-2xl p-6 border border-white/5 space-y-4">
+                                                    <div className="flex items-center justify-between">
+                                                        <div className="flex items-center gap-3">
+                                                            <span className="text-lg font-black text-white">{skillItem.skill}</span>
+                                                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${skillItem.importance === 'High' ? 'bg-error/20 text-error' :
+                                                                    skillItem.importance === 'Medium' ? 'bg-warning/20 text-warning' :
+                                                                        'bg-info/20 text-info'
+                                                                }`}>
+                                                                {skillItem.importance} Priority
+                                                            </span>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* ChatGPT Prompt */}
+                                                    <div className="bg-base-300/50 rounded-xl p-4 border border-white/5">
+                                                        <div className="flex items-center justify-between mb-2">
+                                                            <span className="text-[10px] font-black uppercase text-primary tracking-widest">ChatGPT Learning Prompt</span>
+                                                            <button
+                                                                onClick={() => {
+                                                                    navigator.clipboard.writeText(skillItem.chatgptPrompt);
+                                                                    toast.success(`Copied prompt for ${skillItem.skill}!`);
+                                                                }}
+                                                                className="btn btn-ghost btn-xs gap-1 text-white/40 hover:text-white"
+                                                            >
+                                                                <CopyIcon className="size-3" /> Copy
+                                                            </button>
+                                                        </div>
+                                                        <p className="text-sm text-white/70 leading-relaxed font-mono">
+                                                            {skillItem.chatgptPrompt}
+                                                        </p>
+                                                    </div>
+
+                                                    {/* Resume Readiness */}
+                                                    <div className="flex items-start gap-3 p-3 rounded-xl bg-success/5 border border-success/10">
+                                                        <ClockIcon className="size-4 text-success shrink-0 mt-0.5" />
+                                                        <div>
+                                                            <span className="text-[10px] font-black uppercase text-success/80 tracking-widest">Add to Resume When</span>
+                                                            <p className="text-sm font-bold text-white/80 leading-tight mt-1">
+                                                                {skillItem.readinessGuideline}
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}

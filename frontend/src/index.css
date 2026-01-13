@@ -3,6 +3,7 @@
 @plugin "daisyui" {
   themes: arena, dark, light;
 }
+@plugin "@tailwindcss/typography";
 
 @theme {
   --color-primary: #3b82f6;

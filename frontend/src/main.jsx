@@ -15,6 +15,13 @@ if (!PUBLISHABLE_KEY) {
 
 const queryClient = new QueryClient();
 
+// Suppress specific development warnings
+const originalWarn = console.warn;
+console.warn = (...args) => {
+  if (args[0]?.includes?.("Clerk: Clerk has been loaded with development keys")) return;
+  originalWarn(...args);
+};
+
 createRoot(document.getElementById("root")).render(
   <StrictMode>
     <BrowserRouter>

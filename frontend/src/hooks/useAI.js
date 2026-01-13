@@ -47,6 +47,26 @@ export const useEnableAIAnalyzer = (sessionId) => {
             toast.success("AI Analyzer enabled!");
             queryClient.invalidateQueries(["session", sessionId]);
         },
-        onError: (error) => toast.error(error.response?.data?.message || "Failed to enable analyzer"),
+    });
+};
+
+export const useChatInterview = () => {
+    return useMutation({
+        mutationFn: aiApi.chatInterview,
+        onError: (error) => toast.error(error.response?.data?.message || "Interview chat failed"),
+    });
+};
+
+export const useGenerateInterviewPlan = () => {
+    return useMutation({
+        mutationFn: aiApi.generateInterviewPlan,
+        onError: (error) => toast.error(error.response?.data?.message || "Failed to prepare interview plan"),
+    });
+};
+
+export const useSuggestQuestion = () => {
+    return useMutation({
+        mutationFn: aiApi.suggestQuestion,
+        onError: (error) => toast.error(error.response?.data?.message || "Failed to get question suggestion"),
     });
 };

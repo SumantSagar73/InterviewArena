@@ -1,0 +1,493 @@
+import { useRef, useState, useEffect } from "react";
+import {
+    PencilIcon,
+    EraserIcon,
+    Trash2Icon,
+    UndoIcon,
+    RedoIcon,
+    DownloadIcon,
+    SquareIcon,
+    CircleIcon,
+    TypeIcon,
+    MinusIcon
+} from "lucide-react";
+
+function DrawingBoard() {
+    const canvasRef = useRef(null);
+    const overlayCanvasRef = useRef(null);
+    const containerRef = useRef(null);
+    const textInputRef = useRef(null);
+    const [isDrawing, setIsDrawing] = useState(false);
+    const [color, setColor] = useState("#000000");
+    const [lineWidth, setLineWidth] = useState(2);
+    const [tool, setTool] = useState("pen");
+    const [history, setHistory] = useState([]);
+    const [historyStep, setHistoryStep] = useState(-1);
+    const [startPos, setStartPos] = useState({ x: 0, y: 0 });
+    const [currentPos, setCurrentPos] = useState({ x: 0, y: 0 });
+    const [textBoxes, setTextBoxes] = useState([]);
+    const [selectedTextBox, setSelectedTextBox] = useState(null);
+    const [editingTextBox, setEditingTextBox] = useState(null);
+    const [resizingBox, setResizingBox] = useState(null);
+
+    useEffect(() => {
+        const resizeCanvas = () => {
+            const canvas = canvasRef.current;
+            const overlayCanvas = overlayCanvasRef.current;
+            const container = containerRef.current;
+            if (!canvas || !overlayCanvas || !container) return;
+
+            const rect = container.getBoundingClientRect();
+
+            // Store current canvas data
+            const tempCanvas = document.createElement('canvas');
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCanvas.width = canvas.width;
+            tempCanvas.height = canvas.height;
+            tempCtx.drawImage(canvas, 0, 0);
+
+            // Resize both canvases
+            canvas.width = rect.width;
+            canvas.height = rect.height;
+            overlayCanvas.width = rect.width;
+            overlayCanvas.height = rect.height;
+
+            const ctx = canvas.getContext("2d");
+
+            // Set white background
+            ctx.fillStyle = "white";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Restore previous drawing if exists
+            if (tempCanvas.width > 0) {
+                ctx.drawImage(tempCanvas, 0, 0);
+            }
+
+            if (history.length === 0) {
+                saveToHistory();
+            }
+        };
+
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+
+        return () => window.removeEventListener('resize', resizeCanvas);
+    }, []);
+
+    const saveToHistory = () => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+
+        const newHistory = history.slice(0, historyStep + 1);
+        newHistory.push(canvas.toDataURL());
+        setHistory(newHistory);
+        setHistoryStep(newHistory.length - 1);
+    };
+
+    const getCanvasPoint = (e) => {
+        const canvas = overlayCanvasRef.current || canvasRef.current;
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+
+        return {
+            x: (e.clientX - rect.left) * scaleX,
+            y: (e.clientY - rect.top) * scaleY
+        };
+    };
+
+    const drawShape = (ctx, start, end, toolType, strokeColor, strokeWidth) => {
+        ctx.strokeStyle = strokeColor;
+        ctx.lineWidth = strokeWidth;
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+
+        if (toolType === "rectangle") {
+            const width = end.x - start.x;
+            const height = end.y - start.y;
+            ctx.strokeRect(start.x, start.y, width, height);
+        } else if (toolType === "circle") {
+            const radius = Math.sqrt(
+                Math.pow(end.x - start.x, 2) + Math.pow(end.y - start.y, 2)
+            );
+            ctx.beginPath();
+            ctx.arc(start.x, start.y, radius, 0, 2 * Math.PI);
+            ctx.stroke();
+        } else if (toolType === "line") {
+            ctx.beginPath();
+            ctx.moveTo(start.x, start.y);
+            ctx.lineTo(end.x, end.y);
+            ctx.stroke();
+        }
+    };
+
+    const startDrawing = (e) => {
+        const point = getCanvasPoint(e);
+
+        if (tool === "text") {
+            // Check if clicking on existing text box
+            const clickedBox = textBoxes.find(box =>
+                point.x >= box.x && point.x <= box.x + box.width &&
+                point.y >= box.y && point.y <= box.y + box.height
+            );
+
+            if (clickedBox) {
+                setEditingTextBox(clickedBox);
+                setSelectedTextBox(clickedBox);
+            } else {
+                // Create new text box
+                const newBox = {
+                    id: Date.now(),
+                    x: point.x,
+                    y: point.y,
+                    width: 200,
+                    height: 100,
+                    text: "",
+                    fontSize: 16,
+                    color: color
+                };
+                setTextBoxes([...textBoxes, newBox]);
+                setEditingTextBox(newBox);
+                setSelectedTextBox(newBox);
+            }
+            return;
+        }
+
+        setStartPos(point);
+        setCurrentPos(point);
+        setIsDrawing(true);
+
+        if (tool === "pen" || tool === "eraser") {
+            const canvas = canvasRef.current;
+            const ctx = canvas.getContext("2d");
+            ctx.beginPath();
+            ctx.moveTo(point.x, point.y);
+        }
+    };
+
+    const draw = (e) => {
+        if (!isDrawing) return;
+
+        const point = getCanvasPoint(e);
+        setCurrentPos(point);
+
+        if (tool === "pen" || tool === "eraser") {
+            const canvas = canvasRef.current;
+            const ctx = canvas.getContext("2d");
+
+            ctx.lineWidth = lineWidth;
+            ctx.lineCap = "round";
+            ctx.lineJoin = "round";
+            ctx.strokeStyle = tool === "eraser" ? "white" : color;
+
+            ctx.lineTo(point.x, point.y);
+            ctx.stroke();
+        } else if (tool === "rectangle" || tool === "circle" || tool === "line") {
+            // Draw preview on overlay canvas
+            const overlayCanvas = overlayCanvasRef.current;
+            const overlayCtx = overlayCanvas.getContext("2d");
+
+            // Clear overlay
+            overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+            redrawTextBoxes();
+        };
+
+        const redrawTextBoxes = () => {
+            const overlayCanvas = overlayCanvasRef.current;
+            if (!overlayCanvas) return;
+
+            const overlayCtx = overlayCanvas.getContext("2d");
+            overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+
+            // Draw all text boxes
+            textBoxes.forEach(box => {
+                // Draw box border
+                overlayCtx.strokeStyle = box === selectedTextBox ? "#3b82f6" : "#d1d5db";
+                overlayCtx.lineWidth = box === selectedTextBox ? 2 : 1;
+                overlayCtx.strokeRect(box.x, box.y, box.width, box.height);
+
+                // Draw text
+                if (box.text && box !== editingTextBox) {
+                    overlayCtx.fillStyle = box.color;
+                    overlayCtx.font = `${box.fontSize}px Arial`;
+                    overlayCtx.textBaseline = "top";
+
+                    const words = box.text.split(' ');
+                    let line = '';
+                    let y = box.y + 8;
+                    const lineHeight = box.fontSize * 1.2;
+                    const maxWidth = box.width - 16;
+
+                    words.forEach(word => {
+                        const testLine = line + word + ' ';
+                        const metrics = overlayCtx.measureText(testLine);
+
+                        if (metrics.width > maxWidth && line !== '') {
+                            overlayCtx.fillText(line, box.x + 8, y);
+                            line = word + ' ';
+                            y += lineHeight;
+                        } else {
+                            line = testLine;
+                        }
+                    });
+                    overlayCtx.fillText(line, box.x + 8, y);
+                }
+
+                // Draw resize handle for selected box
+                if (box === selectedTextBox) {
+                    const handleSize = 8;
+                    overlayCtx.fillStyle = "#3b82f6";
+                    overlayCtx.fillRect(
+                        box.x + box.width - handleSize,
+                        box.y + box.height - handleSize,
+                        handleSize,
+                        handleSize
+                    );
+                }
+            });
+        };
+
+        const handleTextBoxChange = (newText) => {
+            if (!editingTextBox) return;
+
+            const updatedBoxes = textBoxes.map(box =>
+                box.id === editingTextBox.id ? { ...box, text: newText } : box
+            );
+            setTextBoxes(updatedBoxes);
+            setEditingTextBox({ ...editingTextBox, text: newText });
+        };
+
+        const handleTextBoxBlur = () => {
+            setEditingTextBox(null);
+            redrawTextBoxes();
+            saveToHistory(wrap
+    const maxWidth = canvas.width - textPos.x - 20;
+            const words = textInput.split(' ');
+            let line = '';
+            let y = textPos.y;
+            const lineHeight = fontSize * 1.2;
+
+            for (let i = 0; i < words.length; i++) {
+                const testLine = line + words[i] + ' ';
+                const metrics = ctx.measureText(testLine);
+
+                if (metrics.width > maxWidth && i > 0) {
+                    ctx.fillText(line, textPos.x, y);
+                    line = words[i] + ' ';
+                    y += lineHeight;
+                } else {
+                    line = testLine;
+                }
+            }
+            ctx.fillText(line, textPos.x, y);
+
+            saveToHistory();
+            setTextInput("");
+            setShowTextInput(false);
+        };
+
+        const clearCanvas = () => {
+            const canvas = canvasRef.current;
+            const ctx = canvas.getContext("2d");
+
+            ctx.fillStyle = "white";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            saveToHistory();
+        };
+
+        const undo = () => {
+            if (historyStep > 0) {
+                setHistoryStep(historyStep - 1);
+                restoreFromHistory(historyStep - 1);
+            }
+        };
+
+        const redo = () => {
+            if (historyStep < history.length - 1) {
+                setHistoryStep(historyStep + 1);
+                restoreFromHistory(historyStep + 1);
+            }
+        };
+
+        const restoreFromHistory = (step) => {
+            const canvas = canvasRef.current;
+            const ctx = canvas.getContext("2d");
+            const img = new Image();
+
+            img.onload = () => {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(img, 0, 0);
+            };
+            img.src = history[step];
+        };
+
+        const downloadCanvas = () => {
+            const canvas = canvasRef.current;
+            const link = document.createElement("a");
+            link.download = `whiteboard-${Date.now()}.png`;
+            link.href = canvas.toDataURL();
+            link.click();
+        };
+
+        return (
+            <div className="h-full flex flex-col bg-base-200">
+                {/* Toolbar */}
+                <div className="flex items-center gap-2 p-3 bg-base-100 border-b border-base-300 flex-wrap">
+                    {/* Tool Selection */}
+                    <div className="flex gap-1">
+                        <button
+                            className={`btn btn-sm ${tool === "pen" ? "btn-primary" : "btn-ghost"}`}
+                            onClick={() => setTool("pen")}
+                            title="Pen"
+                        >
+                            <PencilIcon className="size-4" />
+                        </button>
+                        <button
+                            className={`btn btn-sm ${tool === "eraser" ? "btn-primary" : "btn-ghost"}`}
+                            onClick={() => setTool("eraser")}
+                            title="Eraser"
+                        >
+                            <EraserIcon className="size-4" />
+                        </button>
+                        <button
+                            className={`btn btn-sm ${tool === "line" ? "btn-primary" : "btn-ghost"}`}
+                            onClick={() => setTool("line")}
+                            title="Line"
+                        >
+                            <MinusIcon className="size-4" />
+                        </button>
+                        <button
+                            className={`btn btn-sm ${tool === "rectangle" ? "btn-primary" : "btn-ghost"}`}
+                            onClick={() => setTool("rectangle")}
+                            title="Rectangle"
+                        >
+                            <SquareIcon className="size-4" />
+                        </button>
+                        <button
+                            className={`btn btn-sm ${tool === "circle" ? "btn-primary" : "btn-ghost"}`}
+                            onClick={() => setTool("circle")}
+                            title="Circle"
+                        >
+                            <CircleIcon className="size-4" />
+                        </button>
+                        <button
+                            className={`btn btn-sm ${tool === "text" ? "btn-primary" : "btn-ghost"}`}
+                            onClick={() => setTool("text")}
+                            title="Text"
+                        >
+                            <TypeIcon className="size-4" />
+                        </button>
+                    </div>
+
+                    <div className="divider divider-horizontal m-0"></div>
+
+                    {/* Color Picker */}
+                    <div className="flex items-center gap-2">
+                        <label className="text-sm font-medium">Color:</label>
+                        <input
+                            type="color"
+                            value={color}
+                            onChange={(e) => setColor(e.target.value)}
+                            className="w-10 h-8 cursor-pointer rounded"
+                            disabled={tool === "eraser"}
+                        />
+                    </div>
+
+                    {/* Line Width */}
+                    <div className="flex items-center gap-2">
+                        <label className="text-sm font-medium">Size:</label>
+                        <input
+                            type="range"
+                            min="1"
+                            max="20"
+                            value={lineWidth}
+                            onChange={(e) => setLineWidth(parseInt(e.target.value))}
+                            className="range range-xs range-primary w-24"
+                        />
+                        <span className="text-sm w-6">{lineWidth}</span>
+                    </div>
+
+                    <div className="divider divider-horizontal m-0"></div>
+
+                    {/* History Controls */}
+                    <div className="flex gap-1">
+                        <button
+                            className="btn btn-sm btn-ghost"
+                            onClick={undo}
+                            disabled={historyStep <= 0}
+                            title="Undo"
+                        >
+                            <UndoIcon className="size-4" />
+                        </button>
+                        <button
+                            className="btn btn-sm btn-ghost"
+                            onClick={redo}
+                            disabled={historyStep >= history.leand text boxes */}
+                        <canvas
+                            ref={overlayCanvasRef}
+                            onMouseDown={startDrawing}
+                            onMouseMove={draw}
+                            onMouseUp={stopDrawing}
+                            onMouseLeave={stopDrawing}
+                            className="absolute inset-0 w-full h-full"
+                            style={{ cursor: tool === "text" ? "text" : "crosshair", pointerEvents: "all" }}
+                        />
+
+                        {/* Editable Text Boxes */}
+                        {editingTextBox && (
+                            <textarea
+                                ref={textInputRef}
+                                autoFocus
+                                value={editingTextBox.text}
+                                onChange={(e) => handleTextBoxChange(e.target.value)}
+                                onBlur={handleTextBoxBlur}
+                                className="absolute border-2 border-primary bg-white p-2 resize-none outline-none"
+                                style={{
+                                    left: `${(editingTextBox.x / canvasRef.current?.width) * 100}%`,
+                                    top: `${(editingTextBox.y / canvasRef.current?.height) * 100}%`,
+                                    width: `${(editingTextBox.width / canvasRef.current?.width) * 100}%`,
+                                    height: `${(editingTextBox.height / canvasRef.current?.height) * 100}%`,
+                                    fontSize: `${editingTextBox.fontSize}px`,
+                                    color: editingTextBox.color,
+                                    zIndex: 20
+                                }}
+                            / onChange={(e) => setTextInput(e.target.value)}
+                        autoFocus
+                        rows={3}
+                        onKeyDown={(e) => {
+                            if (e.key === "Enter" && e.ctrlKey) {
+                                handleTextSubmit();
+                            } else if (e.key === "Escape") {
+                                setShowTextInput(false);
+                                setTextInput("");
+                            }
+                        }}
+                />
+                        <div className="flex gap-2 justify-end">
+                            <button
+                                className="btn btn-sm btn-ghost"
+                                onClick={() => {
+                                    setShowTextInput(false);
+                                    setTextInput("");
+                                }}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                className="btn btn-sm btn-primary"
+                                onClick={handleTextSubmit}
+                            >
+                                Add Text
+                            </button>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1">Press Ctrl+Enter to submit</p>
+                    </div>
+                </div>
+          )}
+            </div>
+      </div >
+    </div >
+  );
+}
+
+export default DrawingBoard;

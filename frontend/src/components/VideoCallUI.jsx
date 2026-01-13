@@ -1,23 +1,21 @@
 import {
-  CallControls,
   CallingState,
   SpeakerLayout,
   useCallStateHooks,
+  ParticipantView,
 } from "@stream-io/video-react-sdk";
-import { Loader2Icon, MessageSquareIcon, UsersIcon, XIcon } from "lucide-react";
-import { useState } from "react";
+import { Loader2Icon, UsersIcon } from "lucide-react";
 import { useNavigate } from "react-router";
-import { Channel, Chat, MessageInput, MessageList, Thread, Window } from "stream-chat-react";
 
 import "@stream-io/video-react-sdk/dist/css/styles.css";
-import "stream-chat-react/dist/css/v2/index.css";
 
-function VideoCallUI({ chatClient, channel, isMini = false }) {
+function VideoCallUI({ isMini = false }) {
   const navigate = useNavigate();
-  const { useCallCallingState, useParticipantCount } = useCallStateHooks();
+  const { useCallCallingState, useParticipantCount, useParticipants, useLocalParticipant } = useCallStateHooks();
   const callingState = useCallCallingState();
   const participantCount = useParticipantCount();
-  const [isChatOpen, setIsChatOpen] = useState(false);
+  const participants = useParticipants();
+  const localParticipant = useLocalParticipant();
 
   if (callingState === CallingState.JOINING) {
     return (
@@ -28,13 +26,33 @@ function VideoCallUI({ chatClient, channel, isMini = false }) {
   }
 
   if (isMini) {
+    // Get remote participant (the other person)
+    const remoteParticipant = participants.find(p => p.sessionId !== localParticipant?.sessionId);
+
     return (
       <div className="h-full w-full bg-base-300 relative overflow-hidden str-video">
         <div className="absolute top-2 left-2 z-10 px-2 py-0.5 bg-black/40 backdrop-blur-md rounded-full border border-white/5 flex items-center gap-1.5">
           <div className="size-1.5 rounded-full bg-error animate-pulse"></div>
           <span className="text-[10px] font-black text-white uppercase tracking-tighter">Live • {participantCount}</span>
         </div>
-        <SpeakerLayout />
+
+        {/* Show remote participant as main view, local as pip */}
+        <div className="w-full h-full relative">
+          {remoteParticipant ? (
+            <ParticipantView participant={remoteParticipant} className="w-full h-full" />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center bg-slate-800 text-white/50 text-xs">
+              Waiting for other participant...
+            </div>
+          )}
+
+          {/* Local participant as small picture-in-picture */}
+          {localParticipant && (
+            <div className="absolute bottom-2 right-2 w-16 h-12 rounded overflow-hidden border border-white/20 shadow-lg">
+              <ParticipantView participant={localParticipant} className="w-full h-full" />
+            </div>
+          )}
+        </div>
       </div>
     );
   }
@@ -42,7 +60,7 @@ function VideoCallUI({ chatClient, channel, isMini = false }) {
   return (
     <div className="h-full flex gap-3 relative str-video">
       <div className="flex-1 flex flex-col gap-3">
-        {/* Participants count badge and Chat Toggle */}
+        {/* Participants count badge */}
         <div className="flex items-center justify-between gap-2 bg-base-100 p-3 rounded-lg shadow">
           <div className="flex items-center gap-2">
             <UsersIcon className="w-5 h-5 text-primary" />
@@ -50,61 +68,12 @@ function VideoCallUI({ chatClient, channel, isMini = false }) {
               {participantCount} {participantCount === 1 ? "participant" : "participants"}
             </span>
           </div>
-          {chatClient && channel && (
-            <button
-              onClick={() => setIsChatOpen(!isChatOpen)}
-              className={`btn btn-sm gap-2 ${isChatOpen ? "btn-primary" : "btn-ghost"}`}
-              title={isChatOpen ? "Hide chat" : "Show chat"}
-            >
-              <MessageSquareIcon className="size-4" />
-              Chat
-            </button>
-          )}
         </div>
 
         <div className="flex-1 bg-base-300 rounded-lg overflow-hidden relative">
           <SpeakerLayout />
         </div>
-
-        <div className="bg-base-100 p-3 rounded-lg shadow flex justify-center">
-          <CallControls onLeave={() => navigate("/dashboard")} />
-        </div>
       </div>
-
-      {/* CHAT SECTION */}
-
-      {chatClient && channel && (
-        <div
-          className={`flex flex-col rounded-lg shadow overflow-hidden bg-[#272a30] transition-all duration-300 ease-in-out ${isChatOpen ? "w-80 opacity-100" : "w-0 opacity-0"
-            }`}
-        >
-          {isChatOpen && (
-            <>
-              <div className="bg-[#1c1e22] p-3 border-b border-[#3a3d44] flex items-center justify-between">
-                <h3 className="font-semibold text-white">Session Chat</h3>
-                <button
-                  onClick={() => setIsChatOpen(false)}
-                  className="text-gray-400 hover:text-white transition-colors"
-                  title="Close chat"
-                >
-                  <XIcon className="size-5" />
-                </button>
-              </div>
-              <div className="flex-1 overflow-hidden stream-chat-dark">
-                <Chat client={chatClient} theme="str-chat__theme-dark">
-                  <Channel channel={channel}>
-                    <Window>
-                      <MessageList />
-                      <MessageInput />
-                    </Window>
-                    <Thread />
-                  </Channel>
-                </Chat>
-              </div>
-            </>
-          )}
-        </div>
-      )}
     </div>
   );
 }

@@ -66,6 +66,13 @@ function HomePage() {
               Connect face-to-face, code in real-time, and ace your technical interviews.
             </p>
 
+            <div className="alert alert-info bg-gradient-to-r from-primary/10 to-secondary/10 border-primary/20 text-sm py-2">
+              <SparklesIcon className="size-4 text-primary animate-pulse" />
+              <span className="font-semibold text-base-content/80">
+                New: <span className="text-primary font-bold">AI Resume-Driven Interviewer</span> is now live!
+              </span>
+            </div>
+
             {/* FEATURE PILLS */}
             <div className="flex flex-wrap gap-3">
               <div className="badge badge-lg badge-outline">
@@ -174,9 +181,23 @@ function HomePage() {
               </p>
             </div>
           </div>
+
+          {/* Feature 4 (AI Interviewer) */}
+          <div className="card bg-base-100 shadow-xl border border-primary/20 relative overflow-hidden">
+            <div className="absolute top-0 right-0 bg-primary text-white text-[10px] font-bold px-2 py-1 rounded-bl-lg">NEW</div>
+            <div className="card-body items-center text-center">
+              <div className="size-16 bg-gradient-to-br from-primary/20 to-secondary/20 rounded-2xl flex items-center justify-center mb-4">
+                <SparklesIcon className="size-8 text-primary" />
+              </div>
+              <h3 className="card-title">AI Mock Interviews</h3>
+              <p className="text-base-content/70">
+                Practice with an AI that reads your resume and asks tailored technical questions.
+              </p>
+            </div>
+          </div>
         </div>
       </div>
-    </div>
+    </div >
   );
 }
 export default HomePage;

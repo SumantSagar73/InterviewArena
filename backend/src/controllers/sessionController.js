@@ -7,13 +7,12 @@ const generateSessionCode = () => {
 
 export async function createSession(req, res) {
   try {
-    const { problem, difficulty } = req.body;
+    const { problem, difficulty, topics, resumeText } = req.body;
     const userId = req.user._id;
     const clerkId = req.user.clerkId;
 
-    if (!problem || !difficulty) {
-      return res.status(400).json({ message: "Problem and difficulty are required" });
-    }
+    // New workflow: Can create session without problem/difficulty
+    // Either with resume/topics OR legacy problem/difficulty
 
     // generate a unique call id for stream video
     const callId = `session_${Date.now()}_${Math.random().toString(36).substring(7)}`;
@@ -28,37 +27,50 @@ export async function createSession(req, res) {
     }
 
     // create session in db
-    const session = await Session.create({
-      problem,
-      difficulty,
+    const sessionData = {
       host: userId,
       callId,
       sessionCode,
-    });
+    };
+
+    // Add legacy fields if provided
+    if (problem) sessionData.problem = problem;
+    if (difficulty) sessionData.difficulty = difficulty;
+
+    // Add new fields if provided
+    if (topics) sessionData.topics = topics;
+
+    const session = await Session.create(sessionData);
 
     // create stream video call
+    const customData = { sessionId: session._id.toString() };
+    if (problem) customData.problem = problem;
+    if (difficulty) customData.difficulty = difficulty;
+    if (topics) customData.topics = topics;
+
     const createdCall = await streamClient.video.call("default", callId).getOrCreate({
       data: {
         created_by_id: clerkId,
-        custom: { problem, difficulty, sessionId: session._id.toString() },
+        custom: customData,
       },
     });
 
-    console.log("Stream call created:", { callId, createdCall });
+
 
     // chat messaging
+    const channelName = problem ? `${problem} Session` : "Interview Session";
     const channel = chatClient.channel("messaging", callId, {
-      name: `${problem} Session`,
+      name: channelName,
       created_by_id: clerkId,
       members: [clerkId],
     });
 
     await channel.create();
-    console.log("Chat channel created for callId:", callId);
+
 
     res.status(201).json({ session });
   } catch (error) {
-    console.log("Error in createSession controller:", error.message);
+    console.error("Error in createSession controller:", error.message);
     res.status(500).json({ message: "Internal Server Error" });
   }
 }
@@ -94,7 +106,7 @@ export async function joinSessionByCode(req, res) {
 
     res.status(200).json({ session });
   } catch (error) {
-    console.log("Error in joinSessionByCode controller:", error.message);
+    console.error("Error in joinSessionByCode controller:", error.message);
     res.status(500).json({ message: "Internal Server Error" });
   }
 }
@@ -109,7 +121,7 @@ export async function getActiveSessions(_, res) {
 
     res.status(200).json({ sessions });
   } catch (error) {
-    console.log("Error in getActiveSessions controller:", error.message);
+    console.error("Error in getActiveSessions controller:", error.message);
     res.status(500).json({ message: "Internal Server Error" });
   }
 }
@@ -128,7 +140,7 @@ export async function getMyRecentSessions(req, res) {
 
     res.status(200).json({ sessions });
   } catch (error) {
-    console.log("Error in getMyRecentSessions controller:", error.message);
+    console.error("Error in getMyRecentSessions controller:", error.message);
     res.status(500).json({ message: "Internal Server Error" });
   }
 }
@@ -145,7 +157,7 @@ export async function getSessionById(req, res) {
 
     res.status(200).json({ session });
   } catch (error) {
-    console.log("Error in getSessionById controller:", error.message);
+    console.error("Error in getSessionById controller:", error.message);
     res.status(500).json({ message: "Internal Server Error" });
   }
 }
@@ -165,7 +177,7 @@ export async function joinSession(req, res) {
     }
 
     if (session.host.toString() === userId.toString()) {
-      return res.status(400).json({ message: "Host cannot join their own session as participant" });
+      return res.status(200).json({ session });
     }
 
     // check if session is already full - has a participant
@@ -179,7 +191,7 @@ export async function joinSession(req, res) {
 
     res.status(200).json({ session });
   } catch (error) {
-    console.log("Error in joinSession controller:", error.message);
+    console.error("Error in joinSession controller:", error.message);
     res.status(500).json({ message: "Internal Server Error" });
   }
 }
@@ -216,7 +228,64 @@ export async function endSession(req, res) {
 
     res.status(200).json({ session, message: "Session ended successfully" });
   } catch (error) {
-    console.log("Error in endSession controller:", error.message);
+    console.error("Error in endSession controller:", error.message);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+}
+
+// Add topics to session
+export async function addTopics(req, res) {
+  try {
+    const { id } = req.params;
+    const { topics } = req.body;
+    const userId = req.user._id;
+
+    console.log("addTopics called with:", { id, topics, userId });
+
+    if (!topics || !Array.isArray(topics)) {
+      return res.status(400).json({ message: "Topics array is required" });
+    }
+
+    const session = await Session.findById(id);
+
+    if (!session) {
+      return res.status(404).json({ message: "Session not found" });
+    }
+
+    // Only host can add topics
+    if (session.host.toString() !== userId.toString()) {
+      return res.status(403).json({ message: "Only the host can add topics" });
+    }
+
+    // Initialize topics array if it doesn't exist
+    if (!session.topics) {
+      session.topics = [];
+    }
+
+    session.topics = [...new Set([...session.topics, ...topics])]; // Avoid duplicates
+    await session.save();
+
+    res.json({ message: "Topics added successfully", topics: session.topics });
+  } catch (error) {
+    console.error("Error in addTopics controller:", error);
+    res.status(500).json({ message: "Internal Server Error", error: error.message });
+  }
+}
+
+// Get session questions
+export async function getSessionQuestions(req, res) {
+  try {
+    const { id } = req.params;
+
+    const session = await Session.findById(id);
+
+    if (!session) {
+      return res.status(404).json({ message: "Session not found" });
+    }
+
+    res.json({ questions: session.aiGeneratedQuestions });
+  } catch (error) {
+    console.error("Error in getSessionQuestions controller:", error.message);
     res.status(500).json({ message: "Internal Server Error" });
   }
 }

@@ -21,7 +21,7 @@ export async function createVersion(req, res) {
 
         res.status(201).json({ version });
     } catch (error) {
-        console.log("Error in createVersion controller:", error.message);
+        console.error("Error in createVersion controller:", error.message);
         res.status(500).json({ message: "Internal Server Error" });
     }
 }
@@ -46,7 +46,7 @@ export async function getVersions(req, res) {
 
         res.status(200).json({ versions });
     } catch (error) {
-        console.log("Error in getVersions controller:", error.message);
+        console.error("Error in getVersions controller:", error.message);
         res.status(500).json({ message: "Internal Server Error" });
     }
 }
@@ -64,7 +64,7 @@ export async function getVersionById(req, res) {
 
         res.status(200).json({ version });
     } catch (error) {
-        console.log("Error in getVersionById controller:", error.message);
+        console.error("Error in getVersionById controller:", error.message);
         res.status(500).json({ message: "Internal Server Error" });
     }
 }

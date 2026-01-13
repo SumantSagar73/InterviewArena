@@ -2,15 +2,40 @@ import mongoose from "mongoose";
 
 const sessionSchema = new mongoose.Schema(
   {
+    // Resume-based interview fields
+    resume: {
+      url: String,
+      fileName: String,
+      uploadedBy: String,
+      data: String, // Base64 encoded file data
+      contentType: String, // MIME type
+    },
+    topics: {
+      type: [String],
+      default: [],
+    },
+    aiGeneratedQuestions: {
+      type: [
+        {
+          question: String,
+          category: String, // e.g., 'technical', 'behavioral', 'project-based'
+          source: String, // 'resume' or 'topic'
+        },
+      ],
+      default: [],
+    },
+
+    // Legacy fields (optional, for backward compatibility)
     problem: {
       type: String,
-      required: true,
+      required: false,
     },
     difficulty: {
       type: String,
       enum: ["easy", "medium", "hard"],
-      required: true,
+      required: false,
     },
+
     host: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",

@@ -1,48 +1,49 @@
 import { useUser } from "@clerk/clerk-react";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { useEndSession, useJoinSession, useSessionById } from "../hooks/useSessions";
-import { PROBLEMS } from "../data/problems";
-import { executeCode } from "../lib/piston";
-import Navbar from "../components/Navbar";
-import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
-import { getDifficultyBadgeClass } from "../lib/utils";
 import {
   Loader2Icon,
-  LogOutIcon,
   PhoneOffIcon,
-  Maximize2Icon,
-  Minimize2Icon,
-  HistoryIcon,
   SparklesIcon,
   ChevronLeftIcon,
+  ChevronRightIcon,
+  SidebarIcon,
+  MaximizeIcon,
+  FileTextIcon,
+  SettingsIcon
 } from "lucide-react";
-import CodeEditorPanel from "../components/CodeEditorPanel";
-import OutputPanel from "../components/OutputPanel";
-import VersionHistoryPanel from "../components/VersionHistoryPanel";
-import AIAnalyzerPanel from "../components/AIAnalyzerPanel";
+import toast from "react-hot-toast";
+import DrawingBoard from "../components/DrawingBoard";
+import InterviewQuestionsPanel from "../components/InterviewQuestionsPanel";
+import ResumePreviewPanel from "../components/ResumePreviewPanel";
 
 import useStreamClient from "../hooks/useStreamClient";
 import { StreamCall, StreamVideo } from "@stream-io/video-react-sdk";
 import VideoCallUI from "../components/VideoCallUI";
-import { useCreateVersion } from "../hooks/useVersions";
 
 function SessionPage() {
   const navigate = useNavigate();
   const { id } = useParams();
   const { user } = useUser();
-  const [output, setOutput] = useState(null);
-  const [isRunning, setIsRunning] = useState(false);
-  const [lastSavedCode, setLastSavedCode] = useState("");
-
-  const [videoPos, setVideoPos] = useState({ x: 30, y: 100 });
+  const [videoPos, setVideoPos] = useState({ x: window.innerWidth - 300, y: 100 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
 
-  const createVersionMutation = useCreateVersion();
+  // Sidebar States (Floating Panels)
+  const [isResumeOpen, setIsResumeOpen] = useState(false);
+  const [isAIOpen, setIsAIOpen] = useState(false);
+
+  // Auto-open panels on load for Host
+  useEffect(() => {
+    if (user) {
+      setIsResumeOpen(true);
+      setIsAIOpen(true);
+    }
+  }, [user]);
+
 
   const { data: sessionData, isLoading: loadingSession, refetch } = useSessionById(id);
-
   const joinSessionMutation = useJoinSession();
   const endSessionMutation = useEndSession();
 
@@ -57,35 +58,54 @@ function SessionPage() {
     isParticipant
   );
 
-  // find the problem data based on session problem title
-  const problemData = session?.problem
-    ? Object.values(PROBLEMS).find((p) => p.title === session.problem)
-    : null;
-
-  const [selectedLanguage, setSelectedLanguage] = useState("javascript");
-  const [code, setCode] = useState(problemData?.starterCode?.[selectedLanguage] || "");
-  const [showHistory, setShowHistory] = useState(false);
-  const [showAI, setShowAI] = useState(false);
-
-  // Auto-fullscreen
+  // Fullscreen Detection & Notification
   useEffect(() => {
-    const enterFullscreen = async () => {
-      try {
-        if (!document.fullscreenElement) {
-          await document.documentElement.requestFullscreen();
+    if (!call) return;
+
+    const handleFullscreenChange = async () => {
+      if (!document.fullscreenElement) {
+        try {
+          await call.sendCustomEvent({
+            type: 'fullscreen_exit',
+            user: user?.fullName || user?.firstName || 'User',
+            text: 'exited full screen mode'
+          });
+        } catch (err) {
+          console.error("Failed to send fullscreen event", err);
         }
-      } catch (err) {
-        console.warn("Auto-fullscreen failed", err);
       }
     };
-    enterFullscreen();
+
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
+  }, [call, user]);
+
+  // Listen for fullscreen Exit events from others
+  useEffect(() => {
+    if (!call) return;
+
+    const unsubscribe = call.on('custom', (event) => {
+      if (event.custom.type === 'fullscreen_exit') {
+        const senderName = event.user?.name || event.custom.user || 'Participant';
+        if (event.user?.id !== user?.id) {
+          toast(`${senderName} ${event.custom.text}`, {
+            icon: '⚠️',
+            style: {
+              borderRadius: '10px',
+              background: '#333',
+              color: '#fff',
+            },
+            duration: 5000
+          });
+        }
+      }
+    });
 
     return () => {
-      if (document.fullscreenElement) {
-        document.exitFullscreen().catch(() => { });
-      }
+      unsubscribe();
     };
-  }, []);
+  }, [call, user]);
+
 
   const handleMouseDown = (e) => {
     if (e.target.closest(".drag-handle")) {
@@ -118,280 +138,193 @@ function SessionPage() {
     };
   }, [isDragging, dragStart]);
 
-  const handleRestore = (restoredCode) => {
-    if (confirm("Are you sure you want to restore this version?")) {
-      setCode(restoredCode);
-      setLastSavedCode(restoredCode);
-      setShowHistory(false);
-    }
-  };
-
-  // auto-join session if user is not already a participant and not the host
+  // auto-join session
   useEffect(() => {
     if (!session || !user || loadingSession) return;
     if (isHost || isParticipant) return;
-
     joinSessionMutation.mutate(id, { onSuccess: refetch });
-
-    // remove the joinSessionMutation, refetch from dependencies to avoid infinite loop
   }, [session, user, loadingSession, isHost, isParticipant, id]);
 
-  // redirect the "participant" when session ends
   useEffect(() => {
     if (session?.status === "completed") navigate("/dashboard");
   }, [session, navigate]);
 
-  // update code when problem loads or changes
-  useEffect(() => {
-    if (problemData?.starterCode?.[selectedLanguage] && !code) {
-      const starter = problemData.starterCode[selectedLanguage];
-      setCode(starter);
-      setLastSavedCode(starter);
-    }
-  }, [problemData, selectedLanguage, code]);
-
-  const handleLanguageChange = (e) => {
-    const newLang = e.target.value;
-    setSelectedLanguage(newLang);
-    // use problem-specific starter code
-    const starterCode = problemData?.starterCode?.[newLang] || "";
-    setCode(starterCode);
-    setLastSavedCode(starterCode);
-    setOutput(null);
-  };
-
-  const handleRunCode = async () => {
-    setIsRunning(true);
-    setOutput(null);
-
-    const result = await executeCode(selectedLanguage, code);
-    setOutput(result);
-    setIsRunning(false);
-
-    // Auto-save version if code changed
-    if (code !== lastSavedCode) {
-      createVersionMutation.mutate(
-        {
-          sessionId: id,
-          problemId: problemData?.title || "unknown",
-          code,
-          language: selectedLanguage,
-          name: "Auto-save",
-        },
-        {
-          onSuccess: () => setLastSavedCode(code),
-        }
-      );
-    }
-  };
-
   const handleEndSession = () => {
     if (confirm("Are you sure you want to end this session?")) {
-      // this will navigate the HOST to dashboard
       endSessionMutation.mutate(id, { onSuccess: () => navigate("/dashboard") });
     }
   };
 
   return (
-    <div className="h-screen bg-base-100 flex flex-col overflow-hidden relative" onMouseDown={handleMouseDown}>
-      {/* Navbar hidden for immersive experience */}
+    <div className="h-screen w-screen bg-slate-50 overflow-hidden relative font-sans" onMouseDown={handleMouseDown}>
 
-      <div className="flex-1 overflow-hidden relative">
-        {/* Floating Draggable Video Call */}
-        {streamClient && call && (
-          <div
-            className={`fixed z-[100] transition-shadow duration-200 ${isDragging ? 'shadow-2xl ring-2 ring-primary/50' : 'shadow-xl'}`}
-            style={{
-              left: `${videoPos.x}px`,
-              top: `${videoPos.y}px`,
-              cursor: isDragging ? 'grabbing' : 'auto'
-            }}
+      {/* 1. LAYER 0: Infinite Whiteboard Canvas */}
+      <div className="absolute inset-0 z-0">
+        <DrawingBoard channel={channel} isHost={isHost} />
+      </div>
+
+      {/* 2. LAYER 10: Floating UI Overlay (Header) */}
+      <div className="absolute top-0 left-0 right-0 p-4 z-10 pointer-events-none flex justify-between items-start">
+
+        {/* Top Left: Back & Info */}
+        <div className="flex items-center gap-3 pointer-events-auto bg-white/80 backdrop-blur-md p-2 rounded-xl border border-white/20 shadow-sm">
+          <button
+            onClick={() => navigate("/dashboard")}
+            className="p-2 hover:bg-black/5 rounded-lg transition-colors text-slate-700"
           >
-            <div className="drag-handle w-full h-8 bg-base-300 rounded-t-2xl flex items-center justify-center cursor-grab active:cursor-grabbing hover:bg-base-200 transition-colors border-x border-t border-white/5">
-              <div className="flex gap-1.5">
-                <span className="size-1 rounded-full bg-white/10"></span>
-                <span className="size-1 rounded-full bg-white/10"></span>
-                <span className="size-1 rounded-full bg-white/10"></span>
-              </div>
+            <ChevronLeftIcon className="size-5" />
+          </button>
+          <div className="h-6 w-px bg-slate-200"></div>
+          <div className="px-2">
+            <div className="text-sm font-bold text-slate-800">
+              {session?.host?.name || "Interview Session"}
             </div>
-            <div className="w-72 bg-base-100 rounded-b-2xl overflow-hidden border border-white/5 border-t-0 shadow-inner">
-              {isInitializingCall ? (
-                <div className="aspect-video flex items-center justify-center bg-base-300">
-                  <Loader2Icon className="animate-spin text-primary opacity-50" />
-                </div>
-              ) : (
-                <div className="aspect-video">
-                  <StreamVideo client={streamClient}>
-                    <StreamCall call={call}>
-                      <VideoCallUI chatClient={chatClient} channel={channel} isMini={true} />
-                    </StreamCall>
-                  </StreamVideo>
-                </div>
-              )}
+            <div className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">
+              Room #{session?.sessionCode}
             </div>
           </div>
-        )}
+        </div>
 
-        {/* AI Miniscreen Overlay */}
-        {showAI && session && (
-          <AIAnalyzerPanel
-            session={session}
-            isHost={isHost}
-            currentCode={code}
-            language={selectedLanguage}
-            userClerkId={user.id}
-            variant="miniscreen"
-            mode="session"
-            problemDescription={problemData?.description?.text}
-            onClose={() => setShowAI(false)}
-          />
-        )}
-
-        <PanelGroup direction="horizontal">
-          {/* MAIN CONTENT AREA */}
-          <Panel defaultSize={40} minSize={30}>
-            <div className="h-full overflow-y-auto bg-base-200 custom-scrollbar">
-              {/* HEADER SECTION */}
-              <div className="p-6 bg-base-100 border-b border-white/5">
-                <div className="flex items-start justify-between mb-3">
-                  <div>
-                    <h1 className="text-2xl font-black text-white flex items-center gap-3">
-                      <button
-                        onClick={() => navigate("/dashboard")}
-                        className="btn btn-ghost btn-xs btn-square hover:bg-white/10"
-                      >
-                        <ChevronLeftIcon className="size-4" />
-                      </button>
-                      {session?.problem || "Loading..."}
-                    </h1>
-                    <div className="flex items-center gap-3 mt-1 uppercase text-[10px] font-bold tracking-widest text-white/30">
-                      {problemData?.category && <span className="text-primary">{problemData.category}</span>}
-                      <span>{session?.host?.name || "..."} • Room #{session?.sessionCode}</span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    {isHost && session?.status === "active" && (
-                      <button
-                        onClick={handleEndSession}
-                        disabled={endSessionMutation.isPending}
-                        className="btn btn-error btn-xs rounded-xl font-bold px-3"
-                      >
-                        {endSessionMutation.isPending ? (
-                          <Loader2Icon className="size-3 animate-spin" />
-                        ) : (
-                          "End"
-                        )}
-                      </button>
-                    )}
-
-                    <button
-                      className={`btn btn-sm btn-ghost rounded-xl ${showAI ? 'text-primary' : 'text-white/40'}`}
-                      title="AI Assistant"
-                      onClick={() => {
-                        setShowAI((s) => !s);
-                        setShowHistory(false);
-                      }}
-                    >
-                      <SparklesIcon className="size-4" />
-                    </button>
-
-                    <button
-                      className={`btn btn-sm btn-ghost rounded-xl ${showHistory ? 'text-primary' : 'text-white/40'}`}
-                      title="Version History"
-                      onClick={() => {
-                        setShowHistory((s) => !s);
-                        setShowAI(false);
-                      }}
-                    >
-                      <HistoryIcon className="size-4" />
-                    </button>
-
-                    <span className={`badge badge-sm font-bold border-none py-3 px-3 uppercase text-[10px] ${getDifficultyBadgeClass(session?.difficulty)}`}>
-                      {session?.difficulty || "easy"}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="p-6 space-y-6">
-                {/* problem desc */}
-                {problemData?.description && (
-                  <div className="bg-base-100 rounded-2xl p-5 border border-white/5 space-y-4">
-                    <h2 className="text-xs font-black text-white uppercase tracking-widest flex items-center gap-2">
-                      <span className="size-1.5 bg-primary rounded-full"></span>
-                      Description
-                    </h2>
-                    <div className="text-sm leading-relaxed text-white/70 font-medium whitespace-pre-wrap">
-                      {problemData.description.text}
-                    </div>
-                  </div>
-                )}
-
-                {/* examples section */}
-                {problemData?.examples && problemData.examples.length > 0 && (
-                  <>
-                    {problemData.examples.map((ex, idx) => (
-                      <div key={idx} className="bg-base-100 rounded-2xl p-5 border border-white/5 space-y-3">
-                        <h2 className="text-[10px] font-black text-white/30 uppercase">Example {idx + 1}</h2>
-                        <div className="bg-base-300 rounded-xl p-4 font-mono text-xs space-y-2 border border-white/5">
-                          <div className="flex gap-2">
-                            <span className="text-primary font-bold">In:</span>
-                            <span className="text-white/80">{ex.input}</span>
-                          </div>
-                          <div className="flex gap-2">
-                            <span className="text-secondary font-bold">Out:</span>
-                            <span className="text-white/80">{ex.output}</span>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </>
-                )}
-              </div>
+        {/* Top Right: Actions */}
+        <div className="flex items-center gap-2 pointer-events-auto">
+          {/* Panel Toggles */}
+          {isHost && (
+            <div className="bg-white/80 backdrop-blur-md p-1.5 rounded-xl border border-white/20 shadow-sm flex gap-1 items-center">
+              <button
+                onClick={() => setIsResumeOpen(!isResumeOpen)}
+                className={`p-2 rounded-lg transition-all ${isResumeOpen ? 'bg-indigo-100 text-indigo-600' : 'hover:bg-black/5 text-slate-600'}`}
+                title="Toggle Resume"
+              >
+                <FileTextIcon className="size-5" />
+              </button>
+              <button
+                onClick={() => setIsAIOpen(!isAIOpen)}
+                className={`p-2 rounded-lg transition-all ${isAIOpen ? 'bg-indigo-100 text-indigo-600' : 'hover:bg-black/5 text-slate-600'}`}
+                title="Toggle AI Assistant"
+              >
+                <SparklesIcon className="size-5" />
+              </button>
             </div>
-          </Panel>
-
-          <PanelResizeHandle className="w-1.5 bg-base-300 hover:bg-primary/50 transition-colors cursor-col-resize" />
-
-          <Panel defaultSize={60} minSize={40}>
-            <PanelGroup direction="vertical">
-              <Panel defaultSize={70} minSize={30}>
-                <CodeEditorPanel
-                  selectedLanguage={selectedLanguage}
-                  code={code}
-                  isRunning={isRunning}
-                  onLanguageChange={handleLanguageChange}
-                  onCodeChange={(value) => setCode(value)}
-                  onRunCode={handleRunCode}
-                />
-              </Panel>
-
-              <PanelResizeHandle className="h-1.5 bg-base-300 hover:bg-primary/50 transition-colors cursor-row-resize" />
-
-              <Panel defaultSize={30} minSize={15}>
-                <OutputPanel output={output} />
-              </Panel>
-            </PanelGroup>
-          </Panel>
-
-          {showHistory && (
-            <>
-              <PanelResizeHandle className="w-1.5 bg-base-300 hover:bg-primary/50 transition-colors" />
-              <Panel defaultSize={20} minSize={15}>
-                <VersionHistoryPanel
-                  targetId={id}
-                  problemId={problemData?.title || "unknown"}
-                  currentCode={code}
-                  language={selectedLanguage}
-                  onRestore={handleRestore}
-                  isSession={true}
-                />
-              </Panel>
-            </>
           )}
-        </PanelGroup>
+
+          <div className="bg-white/80 backdrop-blur-md p-1.5 rounded-xl border border-white/20 shadow-sm flex gap-2 items-center">
+            <button
+              onClick={() => {
+                if (!document.fullscreenElement) {
+                  document.documentElement.requestFullscreen().catch(console.error);
+                } else {
+                  document.exitFullscreen().catch(console.error);
+                }
+              }}
+              className="p-2 hover:bg-black/5 rounded-lg transition-colors text-slate-700"
+              title="Toggle Fullscreen"
+            >
+              <MaximizeIcon className="size-5" />
+            </button>
+
+            {isHost && session?.status === "active" && (
+              <button
+                onClick={handleEndSession}
+                disabled={endSessionMutation.isPending}
+                className="flex items-center gap-2 px-3 py-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg text-xs font-bold transition-colors"
+              >
+                {endSessionMutation.isPending ? (
+                  <Loader2Icon className="size-4 animate-spin" />
+                ) : (
+                  <PhoneOffIcon className="size-4" />
+                )}
+                <span className="hidden sm:inline">End</span>
+              </button>
+            )}
+          </div>
+        </div>
       </div>
+
+
+      {/* 3. LAYER 20: Floating Content Panels */}
+
+      {/* Left Panel: Resume */}
+      {isHost && (
+        <div
+          className={`absolute left-4 top-20 bottom-4 w-[45vw] min-w-[500px] max-w-[800px] z-20 pointer-events-none transition-all duration-300 ease-in-out transform origin-left
+            ${isResumeOpen ? 'translate-x-0 opacity-100' : '-translate-x-[500px] opacity-0'}`}
+        >
+          <div className="w-full h-full bg-white/90 backdrop-blur-xl border border-white/40 shadow-2xl rounded-2xl flex flex-col pointer-events-auto overflow-hidden">
+            <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-white/50">
+              <h3 className="font-semibold text-slate-800 flex items-center gap-2">
+                <FileTextIcon className="size-4 text-indigo-500" />
+                Candidate Resume
+              </h3>
+              <button onClick={() => setIsResumeOpen(false)} className="text-slate-400 hover:text-slate-600">
+                <ChevronLeftIcon className="size-4" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto p-0">
+              <ResumePreviewPanel sessionId={id} isHost={isHost} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Right Panel: AI Assistant */}
+      {isHost && (
+        <div
+          className={`absolute right-4 top-20 bottom-4 w-[380px] z-20 pointer-events-none transition-all duration-300 ease-in-out transform origin-right
+            ${isAIOpen ? 'translate-x-0 opacity-100' : 'translate-x-[400px] opacity-0'}`}
+        >
+          <div className="w-full h-full bg-white/90 backdrop-blur-xl border border-white/40 shadow-2xl rounded-2xl flex flex-col pointer-events-auto overflow-hidden">
+            <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-white/50">
+              <h3 className="font-semibold text-slate-800 flex items-center gap-2">
+                <SparklesIcon className="size-4 text-indigo-500" />
+                AI Copilot
+              </h3>
+              <button onClick={() => setIsAIOpen(false)} className="text-slate-400 hover:text-slate-600">
+                <ChevronRightIcon className="size-4" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto p-0">
+              <InterviewQuestionsPanel sessionId={id} isHost={isHost} />
+            </div>
+          </div>
+        </div>
+      )}
+
+
+      {/* 4. LAYER 50: Draggable Video Call */}
+      {streamClient && call && (
+        <div
+          className={`fixed z-[50] transition-shadow duration-200 rounded-2xl overflow-hidden ${isDragging ? 'shadow-2xl ring-4 ring-indigo-500/20' : 'shadow-xl'}`}
+          style={{
+            left: `${videoPos.x}px`,
+            top: `${videoPos.y}px`,
+            cursor: isDragging ? 'grabbing' : 'auto'
+          }}
+        >
+          <div className="drag-handle w-full h-8 bg-slate-900/90 backdrop-blur flex items-center justify-center cursor-grab active:cursor-grabbing hover:bg-slate-800 transition-colors border-b border-white/10">
+            <div className="flex gap-1.5 opacity-50">
+              <span className="size-1.5 rounded-full bg-white"></span>
+              <span className="size-1.5 rounded-full bg-white"></span>
+              <span className="size-1.5 rounded-full bg-white"></span>
+            </div>
+          </div>
+          <div className="w-72 bg-slate-950 border border-slate-800 border-t-0 relative">
+            {isInitializingCall ? (
+              <div className="aspect-video flex items-center justify-center bg-slate-900">
+                <Loader2Icon className="animate-spin text-indigo-400 opacity-80" />
+              </div>
+            ) : (
+              <div className="aspect-video">
+                <StreamVideo client={streamClient}>
+                  <StreamCall call={call}>
+                    <VideoCallUI isMini={true} />
+                  </StreamCall>
+                </StreamVideo>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
